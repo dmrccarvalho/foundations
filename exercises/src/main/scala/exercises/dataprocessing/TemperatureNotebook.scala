@@ -5,6 +5,8 @@ import exercises.dataprocessing.TimeUtil.{bench, Labelled}
 import kantan.csv._
 import kantan.csv.ops._
 
+import scala.concurrent.ExecutionContext
+
 // Run the notebook using green arrow (if available in your IDE)
 // or run `sbt` in your terminal to open sbt in shell mode then type:
 // exercises/runMain exercises.dataprocessing.TemperatureNotebook
@@ -23,7 +25,7 @@ object TemperatureNotebook extends App {
 
   val rows: List[Either[ReadError, Sample]] = reader.toList
 
-  val failures: List[ReadError] = rows.collect { case Left(error)   => error }
+  val failures: List[ReadError] = rows.collect { case Left(error) => error }
   val samples: List[Sample]     = rows.collect { case Right(sample) => sample }
 
   // we can also extract failures and successes in one go using `partitionMap`
@@ -34,16 +36,42 @@ object TemperatureNotebook extends App {
   // a. Implement `samples`, a `ParList` containing all the `Samples` in `successes`.
   // Partition `parSamples` so that it contains 10 partitions of roughly equal size.
   // Note: Check `ParList` companion object
-  lazy val parSamples: ParList[Sample] =
-    ???
+  val partitionSize = math.ceil(samples.size.toDouble / 10).toInt
+  val ec            = fixedSizeExecutionContext(12) // or use ExecutionContext.global
+  val parSamples: ParList[Sample] =
+    ParList.byPartitionSize(partitionSize, samples, ec)
+
+  /*parSamples.partitions.zipWithIndex.foreach { case (partition, index) =>
+    println(s"Partition ${index} has size ${partition.size}")
+  }*/
 
   // b. Implement `minSampleByTemperature` in TemperatureExercises
-  lazy val coldestSample: Option[Sample] =
+  val coldestSample: Option[Sample] =
     TemperatureExercises.minSampleByTemperature(parSamples)
 
+  println(s"The coldest sample is $coldestSample")
+
   // c. Implement `averageTemperature` in TemperatureExercises
-  lazy val averageTemperature: Option[Double] =
+  val averageTemperature: Option[Double] =
     TemperatureExercises.averageTemperature(parSamples)
+
+  println(s"The average temperature is $averageTemperature")
+
+  parSamples.parFoldMap(_.temperatureFahrenheit)(Monoid.sumDouble)
+
+  /*TemperatureExercises.aggregateByLabel(parSamples)(sample => List(sample.city, sample.country)).foreach {
+    case (label, summary) =>
+      println(s"The summary for the label $label is $summary")
+  }*/
+
+  TemperatureExercises
+    .aggregateByLabel(parSamples)(sample =>
+      if (sample.year >= 2000 && sample.country == "United Kingdom") List(sample.city)
+      else Nil
+    )
+    .foreach { case (label, summary) =>
+      println(s"The summary for the label $label is $summary")
+    }
 
   //////////////////////
   // Benchmark ParList
@@ -57,8 +85,8 @@ object TemperatureNotebook extends App {
   bench("sum", iterations = 200, warmUpIterations = 40, ignore = true)(
     Labelled("List foldLeft", () => samples.foldLeft(0.0)((state, sample) => state + sample.temperatureFahrenheit)),
     Labelled("List map + sum", () => samples.map(_.temperatureFahrenheit).sum),
-//    Labelled("ParList foldMap", () => ???),
-//    Labelled("ParList parFoldMap", () => ???),
+    Labelled("ParList foldMap", () => parSamples.foldMap(_.temperatureFahrenheit)(Monoid.sumDouble)),
+    Labelled("ParList parFoldMap", () => parSamples.parFoldMap(_.temperatureFahrenheit)(Monoid.sumDouble))
   )
 
   // Compare the runtime performance of various implementations of `summary`
@@ -70,7 +98,7 @@ object TemperatureNotebook extends App {
     Labelled("List 4 iterations", () => TemperatureExercises.summaryList(samples)),
     Labelled("List 1 iteration", () => TemperatureExercises.summaryListOnePass(samples)),
     Labelled("ParList 4 iterations", () => TemperatureExercises.summaryParList(parSamples)),
-    Labelled("ParList 1 iteration", () => TemperatureExercises.summaryParListOnePass(parSamples)),
+    Labelled("ParList 1 iteration", () => TemperatureExercises.summaryParListOnePass(parSamples))
   )
 
   //////////////////////////////////////////////

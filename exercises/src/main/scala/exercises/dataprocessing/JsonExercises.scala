@@ -1,19 +1,22 @@
 package exercises.dataprocessing
 
+import scala.collection.immutable.{AbstractMap, SeqMap, SortedMap}
+
 object JsonExercises {
 
   sealed trait Json
   case class JsonNumber(number: Double)         extends Json
   case class JsonString(text: String)           extends Json
   case class JsonObject(obj: Map[String, Json]) extends Json
+  case class JsonBoolean(boolean: Boolean)      extends Json
 
   def trimAll(json: Json): Json =
     json match {
-      case _: JsonNumber   => json
-      case JsonString(str) => JsonString(str.trim)
+      case _: JsonNumber | _: JsonBoolean => json
+      case JsonString(str)                => JsonString(str.trim)
       case JsonObject(obj) =>
-        val newObj = obj.map {
-          case (key, value) => (key, trimAll(value))
+        val newObj = obj.map { case (key, value) =>
+          (key, trimAll(value))
         }
         JsonObject(newObj)
     }
@@ -35,7 +38,12 @@ object JsonExercises {
   //  }                                           }
   //}                                           }
   def anonymize(json: Json): Json =
-    ???
+    json match {
+      case JsonBoolean(_)  => json
+      case JsonNumber(_)   => JsonNumber(0)
+      case JsonString(_)   => JsonString("***")
+      case JsonObject(obj) => JsonObject(obj.map { case (key, value) => (key, anonymize(value)) })
+    }
 
   // b. Implement `search`, a method that checks if a JSON document contains a text.
   // Note: `search` doesn't look inside of the keys of a `JsonObject`, only the values.
@@ -45,8 +53,14 @@ object JsonExercises {
   // * search("Hello", "ll") == true
   // * search({ "message" : "hello" }, "ll") == true
   // * search({ "message" : "hi" }, "ll") == false
-  def search(json: Json, text: String): Boolean =
-    ???
+  def search(json: Json, searchText: String, maxDepth: Int): Boolean =
+    if (maxDepth < 0) false
+    else
+      json match {
+        case JsonNumber(_) | JsonBoolean(_) => false
+        case JsonString(text)               => text.contains(searchText)
+        case JsonObject(obj)                => obj.values.exists(value => search(value, searchText, maxDepth - 1))
+      }
 
   // c. Implement `depth`, a method that calculates the maximum level of nesting of a JSON document.
   // For example:
@@ -54,7 +68,14 @@ object JsonExercises {
   // * { "name" : "john" } has depth 1
   // * { "name" : "john", "address" : { "postcode" : "E16 4SR" } } has depth 2
   def depth(json: Json): Int =
-    ???
+    json match {
+      case JsonObject(obj) =>
+        obj.values.map(value => depth(value)).maxOption match {
+          case None           => 0
+          case Some(maxDepth) => maxDepth + 1
+        }
+      case _ => 0
+    }
 
   //////////////////////////////////////////////
   // Bonus question (not covered by the video)
